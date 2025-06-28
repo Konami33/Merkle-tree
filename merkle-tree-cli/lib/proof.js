@@ -1,3 +1,4 @@
+const path = require('path');
 const { hashData, hashFile } = require('./hashing');
 
 /**
@@ -9,17 +10,19 @@ const { hashData, hashFile } = require('./hashing');
  * @returns {Promise<object[]>} Merkle proof path
  */
 async function generateMerkleProof(target, items, treeLevels, isFilePaths = false) {
-    if (!items || items.length === 0) {
-        return null;
-    }
-    
+    if (!items || items.length === 0) return null;
+
+    // Get the target hash
     const targetHash = isFilePaths ? await hashFile(target) : hashData(target);
-    const index = items.findIndex(item => 
-        (isFilePaths ? hashFile(item) : hashData(item)) === targetHash
-    );
     
+    // Find index using hash comparison instead of path comparison
+    const index = items.findIndex(async item => {
+        const itemHash = isFilePaths ? await hashFile(item) : hashData(item);
+        return itemHash === targetHash;
+    });
+
     if (index === -1) return null;
-    
+
     const proof = [];
     let currentIndex = index;
     
@@ -30,13 +33,12 @@ async function generateMerkleProof(target, items, treeLevels, isFilePaths = fals
         
         if (siblingIndex < currentLevel.length) {
             proof.push({
-                hash: currentLevel[siblingIndex].hash,
+                hash: currentLevel[siblingIndex]["hash"],
                 position: isRightNode ? 'left' : 'right'
             });
         } else {
-            // Handle odd node case
             proof.push({
-                hash: currentLevel[currentIndex].hash,
+                hash: currentLevel[currentIndex]["hash"],
                 position: isRightNode ? 'left' : 'right'
             });
         }
@@ -56,16 +58,22 @@ async function generateMerkleProof(target, items, treeLevels, isFilePaths = fals
  * @returns {Promise<boolean>} True if valid
  */
 async function verifyMerkleProof(target, proof, merkleRoot, isFilePath = false) {
-    let currentHash = isFilePath ? await hashFile(target) : hashData(target);
-    
-    for (const step of proof) {
-        const { hash, position } = step;
-        currentHash = position === 'left' 
-            ? hashData(hash + currentHash)
-            : hashData(currentHash + hash);
+    try {
+        const targetHash = isFilePath ? await hashFile(target) : hashData(target);
+        let currentHash = targetHash;
+        
+        for (const step of proof) {
+            const { hash, position } = step;
+            currentHash = position === 'left' 
+                ? hashData(hash + currentHash)
+                : hashData(currentHash + hash);
+        }
+        
+        return currentHash === merkleRoot;
+    } catch (error) {
+        console.error("Verification error:", error);
+        return false;
     }
-    
-    return currentHash === merkleRoot;
 }
 
 module.exports = {

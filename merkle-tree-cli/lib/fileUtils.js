@@ -38,7 +38,7 @@ async function readDataBlocks(filePath) {
         const content = await fs.promises.readFile(filePath, 'utf-8');
         return content.split('\n')
             .map(line => line.trim())
-            .filter(line => line.length > 0);
+            .filter(line => line.length > 0); // empty line filter
     } catch (error) {
         throw new Error(`File read error: ${error.message}`);
     }

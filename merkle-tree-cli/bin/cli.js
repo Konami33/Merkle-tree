@@ -13,10 +13,12 @@ program
     .option('-o, --output-file <file>', 'output file to save the Merkle Tree JSON')
     .option('-p, --pretty', 'pretty-print JSON output')
     .option('-v, --verify <data>', 'verify if a data block or file is in the tree')
-    .action((args, options) => {
+    .action((data, options) => {
+        // console.log('data:', data);
+        // console.log('opts:', options);
         handleCli({
-            args,
-            ...options.opts()
+            args: data,
+            ...options
         });
     });
 

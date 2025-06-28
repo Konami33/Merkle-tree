@@ -1,3 +1,4 @@
+const path = require('path');
 const { buildMerkleTree } = require('./merkleTree');
 const { generateMerkleProof, verifyMerkleProof } = require('./proof');
 const { getFilesInDirectory, readDataBlocks, writeOutputFile } = require('./fileUtils');
@@ -14,7 +15,8 @@ async function handleCli(options) {
 
         // Handle directory input
         if (options.directory) {
-            dataBlocks = await getFilesInDirectory(options.directory);
+            dataBlocks = (await getFilesInDirectory(options.directory))
+                .map(file => path.normalize(file)); // Normalize here
             isFilePaths = true;
             if (dataBlocks.length === 0) {
                 throw new Error(`No files found in directory '${options.directory}'`);
