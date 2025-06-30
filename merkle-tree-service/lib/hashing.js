@@ -21,7 +21,7 @@ function hashData(data) {
 async function hashFile(filePath) {
     const fd = await fs.promises.open(filePath, 'r');
     const hash = crypto.createHash('sha256');
-    const buffer = Buffer.alloc(4096);
+    const buffer = Buffer.alloc(4096); // Allocates a 4KB buffer to read the file in chunks
     
     try {
         let bytesRead;
@@ -30,7 +30,7 @@ async function hashFile(filePath) {
             if (bytesRead > 0) {
                 hash.update(buffer.slice(0, bytesRead));
             }
-        } while (bytesRead > 0);
+        } while (bytesRead > 0); // Reads the file in chunks using read, updating the hash with each chunk until the end of the file (bytesRead == 0).
         
         return hash.digest('hex');
     } finally {
