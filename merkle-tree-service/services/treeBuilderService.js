@@ -93,12 +93,14 @@ async function scanDirectory() {
         logger.debug(`Scanning directory: ${config.SOURCE_DIRECTORY}`);
         
         const files = await getFilesInDirectory(config.SOURCE_DIRECTORY);
+
+        logger.info(`Found ${files.length} files`);
         
-        // Apply batch size limit if configured
-        if (config.BATCH_SIZE && files.length > config.BATCH_SIZE) {
-            logger.warn(`Found ${files.length} files, limiting to batch size of ${config.BATCH_SIZE}`);
-            return files.slice(0, config.BATCH_SIZE);
-        }
+        // Apply batch size limit if configured (0 means no limit)
+        // if (config.BATCH_SIZE && config.BATCH_SIZE > 0 && files.length > config.BATCH_SIZE) {
+        //     logger.warn(`Found ${files.length} files, limiting to batch size of ${config.BATCH_SIZE}`);
+        //     return files.slice(0, config.BATCH_SIZE);
+        // }
 
         return files;
 
