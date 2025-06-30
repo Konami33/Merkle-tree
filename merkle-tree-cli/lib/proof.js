@@ -16,10 +16,20 @@ async function generateMerkleProof(target, items, treeLevels, isFilePaths = fals
     const targetHash = isFilePaths ? await hashFile(target) : hashData(target);
     
     // Find index using hash comparison instead of path comparison
-    const index = items.findIndex(async item => {
-        const itemHash = isFilePaths ? await hashFile(item) : hashData(item);
-        return itemHash === targetHash;
-    });
+    // const index = items.findIndex(async item => {
+    //     const itemHash = isFilePaths ? await hashFile(item) : hashData(item);
+    //     return itemHash === targetHash;
+    // });
+
+    let index = -1;
+    for (let i = 0; i < items.length; i++) {
+        const itemHash = isFilePaths ? await hashFile(items[i]) : hashData(items[i]);
+        if (itemHash === targetHash) {
+            index = i;
+            break;
+        }
+    }
+
 
     if (index === -1) return null;
 
