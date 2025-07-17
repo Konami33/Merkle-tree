@@ -16,6 +16,15 @@ const config = {
     DB_RETRY_ATTEMPTS: parseInt(process.env.DB_RETRY_ATTEMPTS) || 3,
     DB_RETRY_DELAY: parseInt(process.env.DB_RETRY_DELAY) || 1000,
     
+    // Redis configuration
+    REDIS_URL: process.env.REDIS_URL || 'redis://localhost:6379',
+    REDIS_HOST: process.env.REDIS_HOST || 'localhost',
+    REDIS_PORT: parseInt(process.env.REDIS_PORT) || 6379,
+    REDIS_PASSWORD: process.env.REDIS_PASSWORD || undefined,
+    REDIS_DB: parseInt(process.env.REDIS_DB) || 0,
+    REDIS_TTL: parseInt(process.env.REDIS_TTL) || 3600, // 1 hour default
+    REDIS_ENABLED: process.env.REDIS_ENABLED !== 'false', // Enable by default
+    
     // Logging configuration
     LOG_LEVEL: process.env.LOG_LEVEL || 'info'
 };

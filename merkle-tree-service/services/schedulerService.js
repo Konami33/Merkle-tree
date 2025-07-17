@@ -1,5 +1,6 @@
 const cron = require('node-cron');
 const logger = require('../utils/logger');
+const redisService = require('./redisService');
 
 let treeBuilderService = null;
 let config = null;
@@ -91,7 +92,22 @@ async function executeBuild() {
     try {
         logger.info(`Executing scheduled build #${buildCount}`);
         
+        // Update build status in cache
+        await redisService.setBuildStatus({
+            inProgress: true,
+            buildNumber: buildCount,
+            startTime: new Date().toISOString()
+        });
+        
         const result = await treeBuilderService.buildAndSync();
+        
+        // Update cache with completed build status
+        await redisService.setBuildStatus({
+            inProgress: false,
+            buildNumber: buildCount,
+            lastCompletedAt: new Date().toISOString(),
+            lastResult: result
+        });
         
         logger.info(`Scheduled build #${buildCount} completed successfully`, {
             rootHash: result.rootHash,

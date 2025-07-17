@@ -1,4 +1,5 @@
 const logger = require('../utils/logger');
+const redisService = require('./redisService');
 
 let dbPool = null;
 let config = null;
@@ -16,7 +17,7 @@ async function syncTree(treeData) {
     }
 
     try {
-        // Get latest root hash from database
+        // Get latest root hash (with caching)
         const latestRootHash = await getLatestRootHash();
         
         // Check if root hash has changed
@@ -36,7 +37,23 @@ async function syncTree(treeData) {
         // Insert new tree into database
         const result = await insertNewTree(root.hash, root, leafCount, sourcePath);
         
-        logger.info('New tree saved to database', {
+        // Update cache with new root hash and metadata
+        await redisService.setLatestRootHash(root.hash, {
+            rootId: result.rootId,
+            leafCount,
+            sourcePath,
+            previousHash: latestRootHash
+        });
+        
+        // Cache tree metadata
+        await redisService.setTreeMetadata(root.hash, {
+            rootId: result.rootId,
+            itemCount: leafCount,
+            sourcePath,
+            createdAt: new Date().toISOString()
+        });
+        
+        logger.info('New tree saved to database and cache updated', {
             rootId: result.rootId,
             rootHash: root.hash,
             leafCount,
@@ -58,13 +75,29 @@ async function syncTree(treeData) {
 }
 
 async function getLatestRootHash() {
+    // Try to get from cache first
+    const cachedData = await redisService.getLatestRootHash();
+    if (cachedData && cachedData.rootHash) {
+        logger.debug('Retrieved latest root hash from cache:', cachedData.rootHash);
+        return cachedData.rootHash;
+    }
+    
+    // Fallback to database
     const client = await dbPool.connect();
     
     try {
         const query = 'SELECT root_hash FROM merkle_roots ORDER BY created_at DESC LIMIT 1';
         const result = await client.query(query);
         
-        return result.rows.length > 0 ? result.rows[0].root_hash : null;
+        const rootHash = result.rows.length > 0 ? result.rows[0].root_hash : null;
+        
+        // Cache the result if found
+        if (rootHash) {
+            await redisService.setLatestRootHash(rootHash, { source: 'database' });
+            logger.debug('Cached latest root hash from database:', rootHash);
+        }
+        
+        return rootHash;
     } finally {
         client.release();
     }
@@ -105,6 +138,14 @@ async function insertNewTree(rootHash, treeJson, itemCount, sourcePath) {
 }
 
 async function getTreeByRootHash(rootHash) {
+    // Try cache first
+    const cachedMetadata = await redisService.getTreeMetadata(rootHash);
+    if (cachedMetadata) {
+        logger.debug('Retrieved tree metadata from cache for hash:', rootHash);
+        // If we have cached metadata, we might not need the full tree JSON
+        // Return cached data if it's sufficient
+    }
+    
     const client = await dbPool.connect();
     
     try {
@@ -128,7 +169,7 @@ async function getTreeByRootHash(rootHash) {
         }
 
         const row = result.rows[0];
-        return {
+        const treeData = {
             id: row.id,
             rootHash: row.root_hash,
             itemCount: row.item_count,
@@ -136,6 +177,16 @@ async function getTreeByRootHash(rootHash) {
             createdAt: row.created_at,
             treeJson: row.tree_json
         };
+        
+        // Cache the metadata for future use
+        await redisService.setTreeMetadata(rootHash, {
+            rootId: row.id,
+            itemCount: row.item_count,
+            sourcePath: row.source_path,
+            createdAt: row.created_at
+        });
+        
+        return treeData;
 
     } finally {
         client.release();
@@ -206,6 +257,46 @@ async function getStats() {
     }
 }
 
+async function clearCache() {
+    try {
+        await redisService.invalidateCache('merkle:*');
+        logger.info('Database-related cache cleared');
+        return true;
+    } catch (error) {
+        logger.error('Error clearing cache:', error);
+        return false;
+    }
+}
+
+async function warmupCache() {
+    try {
+        logger.info('Warming up cache...');
+        
+        // Warm up latest root hash
+        const latestHash = await getLatestRootHash();
+        if (latestHash) {
+            logger.info('Cache warmed up with latest root hash:', latestHash);
+        }
+        
+        // Warm up recent roots metadata
+        const recentRoots = await getRecentRoots(5);
+        for (const root of recentRoots) {
+            await redisService.setTreeMetadata(root.root_hash, {
+                rootId: root.id,
+                itemCount: root.item_count,
+                sourcePath: root.source_path,
+                createdAt: root.created_at
+            });
+        }
+        
+        logger.info(`Cache warmed up with ${recentRoots.length} recent trees`);
+        return true;
+    } catch (error) {
+        logger.error('Error warming up cache:', error);
+        return false;
+    }
+}
+
 module.exports = {
     init,
     syncTree,
@@ -214,5 +305,7 @@ module.exports = {
     getTreeByRootHash,
     getRecentRoots,
     testConnection,
-    getStats
+    getStats,
+    clearCache,
+    warmupCache
 };

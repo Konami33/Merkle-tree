@@ -1,7 +1,7 @@
 const express = require('express');
 const logger = require('../utils/logger');
 
-module.exports = (schedulerService, treeBuilderService, dbSyncService, dbPool) => {
+module.exports = (schedulerService, treeBuilderService, dbSyncService, dbPool, redisService) => {
     const router = express.Router();
 
     router.get('/', async (req, res) => {
@@ -13,6 +13,7 @@ module.exports = (schedulerService, treeBuilderService, dbSyncService, dbPool) =
             uptime: process.uptime(),
             checks: {
                 database: { status: 'unknown' },
+                redis: { status: 'unknown' },
                 scheduler: { status: 'unknown' },
                 treeBuilder: { status: 'unknown' },
                 fileSystem: { status: 'unknown' }
@@ -46,6 +47,24 @@ module.exports = (schedulerService, treeBuilderService, dbSyncService, dbPool) =
                     error: error.message
                 };
                 overallHealthy = false;
+            }
+
+            // Check Redis connection
+            try {
+                const redisHealth = await redisService.getHealthStatus();
+                health.checks.redis = redisHealth;
+                
+                // Redis is optional, so don't fail overall health if Redis is down
+                // but log a warning
+                if (redisHealth.status !== 'healthy') {
+                    logger.warn('Redis health check failed:', redisHealth);
+                }
+            } catch (error) {
+                health.checks.redis = {
+                    status: 'unhealthy',
+                    error: error.message
+                };
+                logger.warn('Redis health check error:', error);
             }
 
             // Check scheduler status
@@ -151,6 +170,7 @@ module.exports = (schedulerService, treeBuilderService, dbSyncService, dbPool) =
                 scheduler: schedulerService.getStatus(),
                 treeBuilder: treeBuilderService.getStatus(),
                 database: await dbSyncService.getStats(),
+                cache: await redisService.getCacheStats(),
                 recentRoots: await dbSyncService.getRecentRoots(5)
             };
 
@@ -160,6 +180,64 @@ module.exports = (schedulerService, treeBuilderService, dbSyncService, dbPool) =
             res.status(500).json({
                 error: 'Failed to get status',
                 message: error.message
+            });
+        }
+    });
+
+    // Cache management endpoints
+    router.get('/cache', async (req, res) => {
+        try {
+            const cacheStats = await redisService.getCacheStats();
+            const cacheHealth = await redisService.getHealthStatus();
+            
+            res.json({
+                health: cacheHealth,
+                stats: cacheStats,
+                enabled: redisService.isConnected()
+            });
+        } catch (error) {
+            logger.error('Cache status endpoint failed:', error);
+            res.status(500).json({
+                error: 'Failed to get cache status',
+                message: error.message
+            });
+        }
+    });
+
+    router.post('/cache/clear', async (req, res) => {
+        try {
+            const cleared = await dbSyncService.clearCache();
+            
+            res.json({
+                success: cleared,
+                message: cleared ? 'Cache cleared successfully' : 'Failed to clear cache',
+                timestamp: new Date().toISOString()
+            });
+        } catch (error) {
+            logger.error('Cache clear failed:', error);
+            res.status(500).json({
+                success: false,
+                error: error.message,
+                message: 'Failed to clear cache'
+            });
+        }
+    });
+
+    router.post('/cache/warmup', async (req, res) => {
+        try {
+            const warmed = await dbSyncService.warmupCache();
+            
+            res.json({
+                success: warmed,
+                message: warmed ? 'Cache warmed up successfully' : 'Failed to warm up cache',
+                timestamp: new Date().toISOString()
+            });
+        } catch (error) {
+            logger.error('Cache warmup failed:', error);
+            res.status(500).json({
+                success: false,
+                error: error.message,
+                message: 'Failed to warm up cache'
             });
         }
     });

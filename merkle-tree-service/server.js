@@ -3,6 +3,7 @@ const express = require('express');
 const { Pool } = require('pg');
 const config = require('./config/app');
 const logger = require('./utils/logger');
+const redisService = require('./services/redisService');
 const schedulerService = require('./services/schedulerService');
 const treeBuilderService = require('./services/treeBuilderService');
 const dbSyncService = require('./services/dbSyncService');
@@ -32,6 +33,16 @@ async function initializeDatabase() {
     }
 }
 
+async function initializeRedis() {
+    try {
+        await redisService.init(config);
+        logger.info('Redis service initialization completed');
+    } catch (error) {
+        logger.warn('Redis initialization failed, continuing without cache:', error);
+        // Don't throw - service should work without Redis
+    }
+}
+
 function setupMiddleware() {
     app.use(express.json());
     app.use(express.urlencoded({ extended: true }));
@@ -45,12 +56,12 @@ function setupMiddleware() {
 
 function setupRoutes() {
     // Initialize services
-    dbSyncService.init(dbPool);
+    dbSyncService.init(dbPool, config);
     treeBuilderService.init(dbSyncService, config);
     schedulerService.init(treeBuilderService, config);
 
     // Health check route
-    app.use('/health', require('./routes/health')(schedulerService, treeBuilderService, dbSyncService, dbPool));
+    app.use('/health', require('./routes/health')(schedulerService, treeBuilderService, dbSyncService, dbPool, redisService));
     
     // Root route
     app.get('/', (req, res) => {
@@ -58,10 +69,15 @@ function setupRoutes() {
             service: 'Merkle Tree Service',
             version: '1.0.0',
             status: 'running',
+            features: {
+                caching: config.REDIS_ENABLED ? 'enabled' : 'disabled',
+                redis: redisService.isConnected() ? 'connected' : 'disconnected'
+            },
             endpoints: {
                 health: '/health',
                 status: '/health/status',
-                build: 'POST /health/build'
+                build: 'POST /health/build',
+                cache: '/health/cache'
             }
         });
     });
@@ -125,6 +141,10 @@ async function gracefulShutdown() {
         schedulerService.stop();
         logger.info('Scheduler stopped');
 
+        // Disconnect Redis
+        await redisService.disconnect();
+        logger.info('Redis disconnected');
+
         // Close database connections
         if (dbPool) {
             await dbPool.end();
@@ -147,8 +167,16 @@ async function startServer() {
         // Initialize database connection
         await initializeDatabase();
         
+        // Initialize Redis
+        await initializeRedis();
+        
         // Setup routes
         setupRoutes();
+        
+        // Warm up cache
+        if (redisService.isConnected()) {
+            await dbSyncService.warmupCache();
+        }
         
         // Setup error handling
         setupErrorHandling();
@@ -161,6 +189,7 @@ async function startServer() {
         server = app.listen(config.PORT, () => {
             logger.info(`Server running on port ${config.PORT}`);
             logger.info(`Health check: http://localhost:${config.PORT}/health`);
+            logger.info(`Cache status: ${redisService.isConnected() ? 'enabled' : 'disabled'}`);
         });
 
         // Setup graceful shutdown
