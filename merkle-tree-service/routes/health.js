@@ -1,7 +1,7 @@
 const express = require('express');
 const logger = require('../utils/logger');
 
-module.exports = (schedulerService, treeBuilderService, dbSyncService, dbPool, redisService) => {
+module.exports = (schedulerService, treeBuilderService, storageService, dbPool, redisService) => {
     const router = express.Router();
 
     router.get('/', async (req, res) => {
@@ -12,13 +12,14 @@ module.exports = (schedulerService, treeBuilderService, dbSyncService, dbPool, r
             timestamp: new Date().toISOString(),
             uptime: process.uptime(),
             checks: {
-                database: { status: 'unknown' },
+                storage: { status: 'unknown' },
                 redis: { status: 'unknown' },
                 scheduler: { status: 'unknown' },
                 treeBuilder: { status: 'unknown' },
                 fileSystem: { status: 'unknown' }
             },
             lastBuild: null,
+            storageMode: storageService.getStorageMode(),
             performance: {
                 responseTime: 0,
                 memory: process.memoryUsage(),
@@ -29,20 +30,23 @@ module.exports = (schedulerService, treeBuilderService, dbSyncService, dbPool, r
         let overallHealthy = true;
 
         try {
-            // Check database connection
+            // Check storage connection (S3 or PostgreSQL)
             try {
-                const dbResult = await dbSyncService.testConnection();
-                health.checks.database = {
-                    status: dbResult.connected ? 'healthy' : 'unhealthy',
-                    timestamp: dbResult.timestamp,
-                    error: dbResult.error
+                const storageResult = await storageService.testConnection();
+                health.checks.storage = {
+                    status: storageResult.connected ? 'healthy' : 'unhealthy',
+                    timestamp: storageResult.timestamp,
+                    storageMode: storageResult.storageMode,
+                    endpoint: storageResult.endpoint,
+                    bucket: storageResult.bucket,
+                    error: storageResult.error
                 };
                 
-                if (!dbResult.connected) {
+                if (!storageResult.connected) {
                     overallHealthy = false;
                 }
             } catch (error) {
-                health.checks.database = {
+                health.checks.storage = {
                     status: 'unhealthy',
                     error: error.message
                 };
@@ -129,17 +133,19 @@ module.exports = (schedulerService, treeBuilderService, dbSyncService, dbPool, r
                 logger.warn('Failed to get last build info:', error);
             }
 
-            // Get database stats
+            // Get storage stats
             try {
-                const dbStats = await dbSyncService.getStats();
-                health.database = {
-                    totalTrees: parseInt(dbStats.total_trees) || 0,
-                    latestTree: dbStats.latest_tree,
-                    earliestTree: dbStats.earliest_tree,
-                    avgItemCount: parseFloat(dbStats.avg_item_count) || 0
+                const storageStats = await storageService.getStats();
+                health.storage = {
+                    totalTrees: parseInt(storageStats.total_trees) || 0,
+                    latestTree: storageStats.latest_tree,
+                    earliestTree: storageStats.earliest_tree,
+                    avgItemCount: parseFloat(storageStats.avg_item_count) || 0,
+                    storageMode: storageStats.storageMode,
+                    totalSizeBytes: storageStats.total_size_bytes
                 };
             } catch (error) {
-                logger.warn('Failed to get database stats:', error);
+                logger.warn('Failed to get storage stats:', error);
             }
 
         } catch (error) {
@@ -167,11 +173,12 @@ module.exports = (schedulerService, treeBuilderService, dbSyncService, dbPool, r
                 service: 'Merkle Tree Service',
                 version: '1.0.0',
                 timestamp: new Date().toISOString(),
+                storageMode: storageService.getStorageMode(),
                 scheduler: schedulerService.getStatus(),
                 treeBuilder: treeBuilderService.getStatus(),
-                database: await dbSyncService.getStats(),
+                storage: await storageService.getStats(),
                 cache: await redisService.getCacheStats(),
-                recentRoots: await dbSyncService.getRecentRoots(5)
+                recentRoots: await storageService.getRecentRoots(5)
             };
 
             res.json(status);
@@ -206,7 +213,7 @@ module.exports = (schedulerService, treeBuilderService, dbSyncService, dbPool, r
 
     router.post('/cache/clear', async (req, res) => {
         try {
-            const cleared = await dbSyncService.clearCache();
+            const cleared = await storageService.clearCache();
             
             res.json({
                 success: cleared,
@@ -225,7 +232,7 @@ module.exports = (schedulerService, treeBuilderService, dbSyncService, dbPool, r
 
     router.post('/cache/warmup', async (req, res) => {
         try {
-            const warmed = await dbSyncService.warmupCache();
+            const warmed = await storageService.warmupCache();
             
             res.json({
                 success: warmed,

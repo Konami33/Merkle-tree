@@ -10,11 +10,21 @@ const config = {
     SOURCE_DIRECTORY: process.env.SOURCE_DIRECTORY || path.join(__dirname, '../data'),
     BATCH_SIZE: parseInt(process.env.BATCH_SIZE) || 100,
     
-    // Database configuration
+    // Database configuration (PostgreSQL) - Legacy support
     DATABASE_URL: process.env.DATABASE_URL || 'postgresql://postgres:password@localhost:5432/merkle_db',
     PG_POOL_SIZE: parseInt(process.env.PG_POOL_SIZE) || 5,
     DB_RETRY_ATTEMPTS: parseInt(process.env.DB_RETRY_ATTEMPTS) || 3,
     DB_RETRY_DELAY: parseInt(process.env.DB_RETRY_DELAY) || 1000,
+    
+    // MinIO/S3 Configuration
+    S3_ENABLED: process.env.S3_ENABLED !== 'false', // Enable by default
+    S3_ENDPOINT: process.env.S3_ENDPOINT || 'localhost',
+    S3_PORT: parseInt(process.env.S3_PORT) || 9000,
+    S3_USE_SSL: process.env.S3_USE_SSL === 'true',
+    S3_ACCESS_KEY: process.env.S3_ACCESS_KEY || 'minioadmin',
+    S3_SECRET_KEY: process.env.S3_SECRET_KEY || 'minioadmin',
+    S3_BUCKET_NAME: process.env.S3_BUCKET_NAME || 'merkle-trees',
+    S3_REGION: process.env.S3_REGION || 'us-east-1',
     
     // Redis configuration
     REDIS_URL: process.env.REDIS_URL || 'redis://localhost:6379',

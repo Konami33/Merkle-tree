@@ -6,7 +6,7 @@ const logger = require('./utils/logger');
 const redisService = require('./services/redisService');
 const schedulerService = require('./services/schedulerService');
 const treeBuilderService = require('./services/treeBuilderService');
-const dbSyncService = require('./services/dbSyncService');
+const storageService = require('./services/storageService');
 
 const app = express();
 let dbPool = null;
@@ -14,22 +14,31 @@ let server = null;
 let isShuttingDown = false;
 
 async function initializeDatabase() {
-    dbPool = new Pool({
-        connectionString: config.DATABASE_URL,
-        max: config.PG_POOL_SIZE,
-        idleTimeoutMillis: 30000,
-        connectionTimeoutMillis: 2000,
-    });
+    if (config.S3_ENABLED) {
+        logger.info('S3 storage mode enabled - skipping PostgreSQL initialization');
+        await storageService.init(config);
+    } else {
+        logger.info('PostgreSQL storage mode enabled');
+        dbPool = new Pool({
+            connectionString: config.DATABASE_URL,
+            max: config.PG_POOL_SIZE,
+            idleTimeoutMillis: 30000,
+            connectionTimeoutMillis: 2000,
+        });
 
-    // Test connection
-    try {
-        const client = await dbPool.connect();
-        await client.query('SELECT NOW()');
-        client.release();
-        logger.info('Database connection established');
-    } catch (error) {
-        logger.error('Database connection failed:', error);
-        throw error;
+        // Test connection
+        try {
+            const client = await dbPool.connect();
+            await client.query('SELECT NOW()');
+            client.release();
+            logger.info('Database connection established');
+            
+            // Initialize storage service with PostgreSQL pool
+            await storageService.init(dbPool);
+        } catch (error) {
+            logger.error('Database connection failed:', error);
+            throw error;
+        }
     }
 }
 
@@ -56,12 +65,11 @@ function setupMiddleware() {
 
 function setupRoutes() {
     // Initialize services
-    dbSyncService.init(dbPool, config);
-    treeBuilderService.init(dbSyncService, config);
+    treeBuilderService.init(storageService, config);
     schedulerService.init(treeBuilderService, config);
 
     // Health check route
-    app.use('/health', require('./routes/health')(schedulerService, treeBuilderService, dbSyncService, dbPool, redisService));
+    app.use('/health', require('./routes/health')(schedulerService, treeBuilderService, storageService, dbPool, redisService));
     
     // Root route
     app.get('/', (req, res) => {
@@ -71,7 +79,9 @@ function setupRoutes() {
             status: 'running',
             features: {
                 caching: config.REDIS_ENABLED ? 'enabled' : 'disabled',
-                redis: redisService.isConnected() ? 'connected' : 'disconnected'
+                redis: redisService.isConnected() ? 'connected' : 'disconnected',
+                storage: storageService.getStorageMode(),
+                s3: config.S3_ENABLED ? 'enabled' : 'disabled'
             },
             endpoints: {
                 health: '/health',
@@ -175,7 +185,7 @@ async function startServer() {
         
         // Warm up cache
         if (redisService.isConnected()) {
-            await dbSyncService.warmupCache();
+            await storageService.warmupCache();
         }
         
         // Setup error handling

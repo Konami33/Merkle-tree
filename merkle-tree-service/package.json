@@ -8,7 +8,9 @@
     "dev": "nodemon server.js",
     "migrate": "node scripts/migrate.js",
     "test:redis": "node test-redis.js",
-    "test:redis:perf": "node test-redis.js --performance-only"
+    "test:redis:perf": "node test-redis.js --performance-only",
+    "test:s3": "node test-s3.js",
+    "test:s3:perf": "node test-s3.js --storage-only"
   },
   "keywords": ["merkle-tree", "postgresql", "express"],
   "author": "",
@@ -18,7 +20,9 @@
     "pg": "^8.11.0",
     "node-cron": "^3.0.2",
     "dotenv": "^16.0.3",
-    "redis": "^4.6.0"
+    "redis": "^4.6.0",
+    "minio": "^7.1.0",
+    "uuid": "^9.0.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"
